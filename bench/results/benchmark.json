@@ -1,0 +1,15 @@
+{
+  "n_cases": 20,
+  "sequential": {
+    "total_s": 8.85,
+    "decisions_per_min": 135.6,
+    "p95_ms": 560.8
+  },
+  "concurrent": {
+    "total_s": 2.82,
+    "decisions_per_min": 425.2,
+    "p95_ms": 162.7
+  },
+  "speedup": 3.14,
+  "vram_rocm_smi": null
+}

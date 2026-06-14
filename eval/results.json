@@ -1,0 +1,125 @@
+{
+  "n_cases": 151,
+  "baseline": {
+    "accuracy": 0.523,
+    "precision": 1.0,
+    "recall": 0.053,
+    "avg_tokens": 135.2
+  },
+  "council": {
+    "accuracy": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "avg_tokens": 412.5,
+    "latency": {
+      "p50_ms": 142.5,
+      "p95_ms": 160.0,
+      "mean_ms": 137.6
+    }
+  },
+  "contradiction_catch_rate": 0.464,
+  "contradiction_catches": 70,
+  "escalations": 33,
+  "escalated_cases": [
+    {
+      "case_id": "CASE-001",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-003",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-005",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-007",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-013",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-025",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-035",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-039",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-041",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-045",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-047",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-053",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-055",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-059",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-073",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-075",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-079",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-085",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-087",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    },
+    {
+      "case_id": "CASE-091",
+      "ground_truth": "APPROVE",
+      "agreement": 0.667
+    }
+  ]
+}

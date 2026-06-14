@@ -1,0 +1,7 @@
+pydantic>=2
+fastapi
+uvicorn
+httpx
+matplotlib
+# vLLM is installed only on the AMD ROCm GPU box, not locally:
+#   pip install vllm  (ROCm build per the hackathon handbook)
