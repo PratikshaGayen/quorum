@@ -1,124 +1,124 @@
 {
   "n_cases": 151,
   "baseline": {
-    "accuracy": 0.523,
+    "accuracy": 0.695,
     "precision": 1.0,
-    "recall": 0.053,
-    "avg_tokens": 135.2
+    "recall": 0.432,
+    "avg_tokens": 310.0
   },
   "council": {
-    "accuracy": 1.0,
+    "accuracy": 0.98,
     "precision": 1.0,
-    "recall": 1.0,
-    "avg_tokens": 412.5,
+    "recall": 0.963,
+    "avg_tokens": 1208.8,
     "latency": {
-      "p50_ms": 142.5,
-      "p95_ms": 160.0,
-      "mean_ms": 137.6
+      "p50_ms": 960.9,
+      "p95_ms": 1279.3,
+      "mean_ms": 996.8
     }
   },
-  "contradiction_catch_rate": 0.464,
-  "contradiction_catches": 70,
-  "escalations": 33,
+  "contradiction_catch_rate": 0.285,
+  "contradiction_catches": 43,
+  "escalations": 29,
   "escalated_cases": [
     {
-      "case_id": "CASE-001",
-      "ground_truth": "APPROVE",
+      "case_id": "DEMO-FRAUD",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-003",
-      "ground_truth": "APPROVE",
+      "case_id": "AMBIG-000",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-005",
-      "ground_truth": "APPROVE",
+      "case_id": "AMBIG-007",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-007",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-039",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-013",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-021",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-025",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-035",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-035",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-014",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-039",
-      "ground_truth": "APPROVE",
+      "case_id": "AMBIG-012",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-041",
-      "ground_truth": "APPROVE",
+      "case_id": "AMBIG-010",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-045",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-001",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-047",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-034",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-053",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-019",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-055",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-016",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-059",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-026",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-073",
-      "ground_truth": "APPROVE",
+      "case_id": "AMBIG-004",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-075",
-      "ground_truth": "APPROVE",
+      "case_id": "AMBIG-008",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-079",
-      "ground_truth": "APPROVE",
+      "case_id": "AMBIG-006",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-085",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-004",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-087",
-      "ground_truth": "APPROVE",
+      "case_id": "AMBIG-001",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     },
     {
-      "case_id": "CASE-091",
-      "ground_truth": "APPROVE",
+      "case_id": "SUBTLE-011",
+      "ground_truth": "REJECT",
       "agreement": 0.667
     }
   ]

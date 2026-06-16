@@ -1,15 +1,15 @@
 {
   "n_cases": 20,
   "sequential": {
-    "total_s": 8.85,
-    "decisions_per_min": 135.6,
-    "p95_ms": 560.8
+    "total_s": 32.69,
+    "decisions_per_min": 36.7,
+    "p95_ms": 2049.7
   },
   "concurrent": {
-    "total_s": 2.82,
-    "decisions_per_min": 425.2,
-    "p95_ms": 162.7
+    "total_s": 21.1,
+    "decisions_per_min": 56.9,
+    "p95_ms": 1377.1
   },
-  "speedup": 3.14,
-  "vram_rocm_smi": null
+  "speedup": 1.55,
+  "vram_rocm_smi": "\n\n============================ ROCm System Management Interface ============================\n================================== Memory Usage (Bytes) ==================================\nGPU[0]\t\t: VRAM Total Memory (B): 206141652992\nGPU[0]\t\t: VRAM Total Used Memory (B): 177603510272\n==========================================================================================\n================================== End of ROCm SMI Log ===================================\n"
 }
