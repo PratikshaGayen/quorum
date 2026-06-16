@@ -12,6 +12,9 @@ node_modules/
 out/
 npm-debug.log*
 
+# Tooling
+.claude/
+
 # OS / editor
 .DS_Store
 Thumbs.db
