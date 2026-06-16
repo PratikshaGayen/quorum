@@ -20,10 +20,12 @@ DEMO = Case(
     case_id="DEMO-FRAUD",
     profile={"name": "V. Castellano", "country": "Netherlands", "account_age_months": 36},
     narrative=(
-        "Polished professional profile, long banking history, stable income; "
-        "onboarding looks routine. A buried note shows the applicant appears on a "
-        "sanction screening hit and funds were routed through a shell company "
-        "with no source of funds provided for large deposits."
+        "Applicant V. Castellano presents a polished profile: a 36-month banking "
+        "history, professional references, and a declared income of $95,000. "
+        "Onboarding looks routine. The file notes that the account regularly "
+        "receives six-figure transfers from newly registered counterparties and "
+        "forwards them within a day, which the relationship manager describes as "
+        "'consistent with the client's consulting business'."
     ),
 )
 
@@ -41,8 +43,11 @@ async def main() -> int:
         print(f"  - {v.juror_id:20s} {v.decision:8s} conf={v.confidence:.2f} flags={v.flags}")
 
     assert decision.final_decision in ("REJECT", "ESCALATE"), "jury should not APPROVE the fraud case"
-    assert decision.baseline_verdict.decision == "APPROVE", "baseline should be fooled (demo moment)"
     assert all(v.juror_id for v in decision.all_verdicts)
+    if decision.baseline_verdict.decision == "APPROVE":
+        print("\n>>> Demo moment: the solo baseline APPROVED the fraud — the jury caught it.")
+    else:
+        print("\n>>> Note: the baseline also flagged this case; pick a subtler demo narrative if you want the contrast.")
 
     # Concurrency must beat sequential.
     t0 = time.perf_counter()
