@@ -113,29 +113,54 @@ class MockClient(InferenceClient):
             risk_score, band_flags = len(keyword_hits), keyword_hits
 
         persona = system.lower()
-        if "general-purpose" in persona:            # the single-model baseline: over-trusting
+        if "compliance officer" in persona:
+            role = "compliance"
+        elif "risk analyst" in persona:
+            role = "risk"
+        elif "devil" in persona:
+            role = "devil"
+        else:
+            role = "baseline"
+
+        if role == "baseline":              # the single-model baseline: over-trusting
             risk_score -= 3
-        elif "devil" in persona and risk_score >= 1:  # amplifies existing doubt only
+        elif role == "devil" and risk_score >= 1:  # amplifies existing doubt only
             risk_score += 1
+
+        # Each council persona fixates on a different facet of the case and frames
+        # it in its own voice, so the cards read distinctly — mirroring the real
+        # model's diverse reasoning rather than three identical clones.
+        primary = band_flags[{"compliance": 0, "risk": 1, "devil": 2}.get(role, 0) % len(band_flags)] if band_flags else "the documented red flag"
+        role_flag = {"compliance": "regulatory threshold", "risk": "pattern anomaly", "devil": "unverified assumption"}.get(role)
 
         if risk_score >= 2:
             decision = "REJECT"
             confidence = min(0.95, 0.7 + 0.05 * risk_score + rng.uniform(0, 0.1))
-            rationale = (
-                f"Risk signals outweigh the reassuring framing ({', '.join(band_flags[:2]) or 'behavioral anomalies'}). "
-                "Evidence does not support onboarding."
-            )
-            flags = band_flags[:4]
+            rationale = {
+                "compliance": f"This fails KYC/AML on the facts — {primary}. Onboarding cannot proceed without remediation.",
+                "risk": f"The activity pattern is anomalous: {primary}, inconsistent with the stated profile.",
+                "devil": f"Even on a charitable reading, {primary} is unexplained — the reassuring framing is doing too much work.",
+            }.get(role, f"Risk signals outweigh the framing ({primary}).")
+            flags = [f for f in (primary, role_flag) if f]
         elif risk_score <= 0:
             decision = "APPROVE"
             confidence = min(0.95, 0.75 + rng.uniform(0, 0.15))
-            rationale = "Profile reads consistent; nothing in the narrative looks materially wrong at face value."
+            rationale = {
+                "baseline": "The profile looks professional and the paperwork appears in order; I see no clear reason to decline.",
+                "compliance": "Documentation satisfies KYC requirements; no rule violation identified.",
+                "risk": "Transaction behaviour matches the stated profile; no anomalies detected.",
+                "devil": "I looked for a reason to decline but found no concrete red flag.",
+            }.get(role, "No material risk signals found.")
             flags = []
         else:
             decision = rng.choice(["APPROVE", "REJECT"])
             confidence = 0.5 + rng.uniform(0, 0.15)
-            rationale = "Evidence is mixed; some indicators are concerning but not conclusive."
-            flags = band_flags[:2]
+            rationale = {
+                "compliance": f"Borderline — {primary} warrants scrutiny but isn't a clear violation.",
+                "risk": f"Mixed signals: {primary} is concerning but not conclusive.",
+                "devil": f"I'd flag {primary}, though the case for rejection is thin.",
+            }.get(role, "Evidence is mixed.")
+            flags = [primary]
         payload = {
             "decision": decision,
             "confidence": round(confidence, 2),
