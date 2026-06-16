@@ -13,11 +13,23 @@ from . import config
 from .inference import InferenceClient
 from .schemas import Case, Verdict
 
+# 'rationale' is emitted FIRST so the model reasons through the facts before it
+# commits to a decision — essential for catching risk that is implicit, not stated.
 _VERDICT_FIELDS = (
-    '{"decision": "APPROVE" | "REJECT", '
-    '"confidence": <float 0.0-1.0>, '
-    '"rationale": "<= 3 sentences", '
-    '"flags": ["risk signal", ...]}'
+    '{"rationale": "<your step-by-step reasoning in <= 3 sentences>", '
+    '"flags": ["risk signal", ...], '
+    '"decision": "APPROVE" | "REJECT", '
+    '"confidence": <float 0.0-1.0>}'
+)
+
+# Domain scrutiny a compliance panel applies that a naive single-shot read does
+# not. Given to the council jurors only — the baseline stays a plain assistant.
+_SCRUTINY = (
+    "Judge the specific facts, not the overall impression. Check in particular whether: "
+    "stated income is consistent with deposit or transfer volumes; amounts sit just below "
+    "regulatory reporting thresholds; funds move in and straight back out (pass-through); "
+    "the stated location is inconsistent with where activity originates; or beneficial "
+    "ownership is opaque. Do not accept a reassuring framing if the underlying facts conflict. "
 )
 
 
@@ -29,12 +41,14 @@ class Juror:
     temperature: float
 
 
-def _system_prompt(persona_desc: str) -> str:
+def _system_prompt(persona_desc: str, *, scrutiny: bool = False) -> str:
     return (
-        f"You are a {persona_desc}. Review the KYC/onboarding case below. "
-        "Output ONLY valid JSON matching this exact schema, with no prose, no "
-        f"markdown fences, nothing else: {_VERDICT_FIELDS}. "
-        "Do not invent facts not present in the case. If evidence is "
+        f"You are a {persona_desc}. Review the KYC/onboarding case below and reason "
+        "through the specifics before deciding. "
+        + (_SCRUTINY if scrutiny else "")
+        + "Output ONLY valid JSON matching this exact schema, with no prose, no markdown "
+        f"fences, nothing else: {_VERDICT_FIELDS}. Fill 'rationale' first (your reasoning), "
+        "then 'decision'. Do not invent facts not present in the case. If evidence is "
         "insufficient, lower your confidence."
     )
 
@@ -44,7 +58,8 @@ COUNCIL: list[Juror] = [
         "compliance_officer",
         "strict, rule-focused compliance officer",
         _system_prompt(
-            "strict compliance officer who enforces KYC/AML rules to the letter"
+            "strict compliance officer who enforces KYC/AML rules to the letter",
+            scrutiny=True,
         ),
         0.2,
     ),
@@ -52,7 +67,8 @@ COUNCIL: list[Juror] = [
         "risk_analyst",
         "pattern- and behaviour-focused risk analyst",
         _system_prompt(
-            "risk analyst focused on behavioral patterns and transaction anomalies"
+            "risk analyst focused on behavioral patterns and transaction anomalies",
+            scrutiny=True,
         ),
         0.5,
     ),
@@ -61,17 +77,19 @@ COUNCIL: list[Juror] = [
         "devil's advocate who argues against the obvious read",
         _system_prompt(
             "devil's advocate who deliberately argues the opposite of the obvious "
-            "conclusion to surface overlooked risk"
+            "conclusion to surface overlooked risk",
+            scrutiny=True,
         ),
         0.8,
     ),
 ]
 
-# The single-model baseline: a lenient juror that mirrors a naive solo LLM.
+# The single-model baseline: one plain assistant call, mirroring a naive solo LLM.
+# It gets NO domain scrutiny — that is precisely what the council adds.
 BASELINE = Juror(
     "baseline_single_model",
     "general-purpose assistant",
-    _system_prompt("helpful, lenient general-purpose assistant"),
+    _system_prompt("helpful general-purpose assistant"),
     0.7,
 )
 
