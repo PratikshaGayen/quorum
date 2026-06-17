@@ -89,9 +89,16 @@ optionally Llama-3.1-8B / Mistral-7B for Option B).
 
 ## Status
 
-Phase 0 (local scaffold on mock) complete and verified: smoke test passes, eval +
-bench produce results, dashboard renders a full deliberation. GPU phases (real
-inference, final numbers, multi-model Option B) are pending a GPU window — see
-`docs/gpu_runbook.md`. Numbers currently in `eval/results.json` /
-`bench/results/` are deterministic **mock** placeholders; the GPU run overwrites
-them.
+Phase 0 (local scaffold) and Phase 1 (real inference on AMD) complete and verified.
+The numbers in `eval/results.json` and `bench/results/` are from a **real run on a
+single AMD Instinct MI300X** (Qwen2.5-7B-Instruct on vLLM/ROCm):
+
+- Recall on bad actors **0.43 → 0.96** (council vs solo model), precision stays **1.0**.
+- **Contradiction-catch rate 0.285** — in 43 / 151 cases the confident baseline was
+  wrong and the council corrected it.
+- Jury runs **in parallel on one GPU**: 56.9 vs 36.7 decisions/min (**1.55×**), at
+  **~86% of 192 GiB VRAM** — the whole council co-located on a single card.
+
+The pipeline still runs end-to-end with `USE_MOCK=True` on a laptop (no GPU) for
+development and the offline demo. Multi-model council (Option B) and an LLM
+chief-judge adjudicator are future work — see `docs/gpu_runbook.md`.

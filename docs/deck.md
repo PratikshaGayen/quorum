@@ -10,7 +10,7 @@
 
 **Quorum — a verifiable decision engine for KYC/fraud approvals**
 
-- **Team / Individual:** <YOUR NAME / TEAM NAME>  ·  Roles: <e.g. Pratiksha Gayen — build, eval, GPU>
+- **Team / Individual:** Pratiksha Gayen (individual)  ·  Role: full build — backend, eval, GPU run, dashboard
 - **Use case / Challenge:** Agentic KYC onboarding decisions — **AGENTS_002**
 - **One-liner:** A jury of diverse LLM personas deliberates each KYC case in parallel on a single AMD GPU; an adjudicator combines their verdicts into APPROVE / REJECT / ESCALATE with a confidence score and a full dissent audit trail.
 - **Tagline:** *We don't make AI smarter — we make its decisions trustworthy and auditable, by turning one AMD Instinct GPU into a courtroom.*
