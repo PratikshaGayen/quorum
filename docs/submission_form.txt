@@ -1,0 +1,59 @@
+QUORUM — ULTIMATIX PRIME EVENTS SUBMISSION (copy-paste helper)
+================================================================
+TCS x AMD AI Hackathon · Track 1 — Agents
+Author: Pratiksha Gayen (individual submission)
+Repo: https://github.com/PratikshaGayen/quorum
+
+
+FILES TO UPLOAD (all < 100 MB; NO .zip — Ultimatix rejects archives)
+--------------------------------------------------------------------
+1. Source code (.pdf) : print docs/source_code.html  -> Save as PDF
+2. Presentation       : print docs/deck.html (Landscape, margins None) -> PDF
+                        (or fill the official TCS template, then export)
+3. Demo recording     : Video Project 2.mp4  (21 MB)
+
+
+FIELD 1 — USE CASE TRACK AND NUMBER
+-----------------------------------
+AGENTS_002 — Agentic KYC Intelligence Platform (Track 1 — Agents)
+
+
+FIELD 2 — USE CASE SUMMARY
+--------------------------
+Quorum is a verifiable decision engine for high-stakes KYC / onboarding
+approvals. Instead of one LLM making an approve/reject call — which
+hallucinates, is overconfident, and leaves no record of why — Quorum runs a
+jury of three diverse LLM personas (Compliance Officer, Risk Analyst, Devil's
+Advocate) that deliberate each case in parallel on a single AMD Instinct GPU.
+Each juror returns a structured verdict (decision + confidence + rationale +
+risk flags); a deterministic adjudicator combines them into a final
+APPROVE / REJECT / ESCALATE with a panel-confidence score and a verbatim
+dissent report — so every decision ships with an audit trail.
+
+Results (real run on 1 x AMD Instinct MI300X, Qwen2.5-7B-Instruct on vLLM/ROCm,
+151 synthesized labeled KYC cases): the council lifts recall on bad actors from
+0.43 to 0.96 while precision stays 1.0 — catching 43 cases the confident single
+model got wrong (contradiction-catch rate 0.285), and escalating only the
+genuinely ambiguous ~19% to a human. The entire jury runs concurrently on one
+GPU at ~1.55x the throughput of running the models one at a time (~86% of
+192 GiB VRAM). Built fully during the hackathon; open-weight models; the
+dataset is synthetic and non-proprietary (synthesis method in the repo).
+
+
+FIELD 3 — CO-OWNERS
+-------------------
+(Individual submission — leave empty, or add only your own employee ID.)
+
+
+FIELD 4 — TAGS
+--------------
+KYC, multi-agent, consensus, adjudication, AMD, MI300X, vLLM, audit-trail
+
+
+CHECKLIST BEFORE CLICKING SUBMIT
+--------------------------------
+[ ] Source code PDF attached (File Upload)
+[ ] Deck PDF/PPT attached (PPT upload)
+[ ] Demo .mp4 attached (Video Upload)
+[ ] Track/number + summary filled
+[ ] Only ONE submission per team — verify all 3 files before submitting
