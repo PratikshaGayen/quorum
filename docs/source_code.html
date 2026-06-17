@@ -1,0 +1,1666 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Quorum - Source Code</title>
+<style>
+  body { font-family: "Segoe UI", system-ui, Arial, sans-serif; color:#0f172a; margin:0; }
+  .cover { padding:60px; }
+  h1 { font-size:34px; margin:0 0 6px; }
+  .sub { color:#475569; font-size:18px; }
+  .toc { margin-top:24px; font-size:14px; color:#334155; }
+  .toc li { margin:3px 0; }
+  h2 { font-size:18px; background:#0f172a; color:#fff; padding:8px 12px;
+       margin:0; border-radius:6px 6px 0 0; page-break-after:avoid; }
+  pre { background:#f8fafc; border:1px solid #e2e8f0; border-top:none;
+        margin:0 0 26px; padding:14px 16px; font-size:11px; line-height:1.4;
+        font-family:Consolas,"Courier New",monospace; white-space:pre-wrap;
+        word-break:break-word; }
+  .file { page-break-inside:auto; }
+  @media print { @page { margin:14mm; } }
+</style></head><body>
+
+<div class="cover">
+<h1>Quorum &mdash; Source Code</h1>
+<div class="sub">A verifiable decision engine for KYC/fraud approvals &middot; TCS &times; AMD AI Hackathon (Track 1 &mdash; Agents, AGENTS_002)<br>Author: Pratiksha Gayen &middot; Repo: https://github.com/PratikshaGayen/quorum</div>
+<ol class="toc">
+<li>README.md</li>
+<li>requirements.txt</li>
+<li>backend/schemas.py</li>
+<li>backend/config.py</li>
+<li>backend/inference.py</li>
+<li>backend/jurors.py</li>
+<li>backend/orchestrator.py</li>
+<li>backend/adjudicator.py</li>
+<li>backend/metrics.py</li>
+<li>backend/main.py</li>
+<li>backend/__init__.py</li>
+<li>eval/prepare_data.py</li>
+<li>eval/run_eval.py</li>
+<li>bench/amd_benchmark.py</li>
+<li>scripts/serve_vllm.sh</li>
+<li>scripts/smoke_test.py</li>
+<li>frontend/app/page.js</li>
+<li>frontend/app/layout.js</li>
+<li>frontend/app/globals.css</li>
+<li>frontend/next.config.mjs</li>
+<li>frontend/postcss.config.mjs</li>
+<li>frontend/package.json</li>
+</ol></div>
+<div class="file">
+<h2>README.md</h2>
+<pre><code class="language-md"># Quorum — a verifiable decision engine
+
+&gt; We don&#x27;t make AI smarter — we make its decisions trustworthy and auditable, by turning one AMD Instinct GPU into a courtroom.
+
+Instead of one LLM making an approve/reject call, Quorum runs a **jury of diverse LLM personas in parallel** on a single GPU. Each juror returns a structured verdict (decision + confidence + rationale + risk flags); an **adjudicator** combines them into a final `APPROVE` / `REJECT` / `ESCALATE` with a panel-confidence score and a verbatim **dissent report**. Every decision ships with an audit trail.
+
+**Use case:** Agentic KYC / fraud onboarding review (AGENTS_002).
+
+## Architecture
+
+```
+Case (JSON) → FastAPI orchestrator → async fan-out to N jurors + 1 baseline
+                                    → adjudicator (majority + confidence + routing)
+                                    → Decision (+ dissent) → Next.js dashboard
+```
+
+Jurors (Option A): one base model, distinct personas — `compliance_officer`, `risk_analyst`, `devils_advocate` — at varied temperatures. A lenient `baseline_single_model` represents a naive solo LLM for the side-by-side demo.
+
+## Run it locally (no GPU — mock inference)
+
+```bash
+pip install -r requirements.txt
+
+# 1. synthesize the labeled case set (incl. the planted DEMO-FRAUD case)
+python eval/prepare_data.py
+
+# 2. sanity check the whole pipeline
+python scripts/smoke_test.py
+
+# 3. baseline vs council comparison (Slide 4 numbers)
+python eval/run_eval.py
+
+# 4. concurrent vs sequential throughput (AMD chart)
+python bench/amd_benchmark.py
+
+# 5. backend + dashboard
+python -m uvicorn backend.main:app --port 8000
+cd frontend &amp;&amp; npm install &amp;&amp; npm run dev   # http://localhost:3000
+```
+
+`USE_MOCK=True` (default) runs everything with deterministic fake inference. Click **Demo case (planted fraud)** in the dashboard: the single model approves, the jury catches it.
+
+## Run on the AMD GPU box (Phase 1)
+
+```bash
+bash scripts/serve_vllm.sh                 # vLLM on ROCm, :8001
+export USE_MOCK=False
+export VLLM_BASE_URL=http://localhost:8001/v1
+python scripts/smoke_test.py               # validate real JSON verdicts
+python eval/run_eval.py --limit 20         # small slice first (cheap insurance)
+python eval/run_eval.py                     # full real accuracy / contradiction-catch
+python bench/amd_benchmark.py               # captures rocm-smi VRAM
+```
+
+Full step-by-step with checks, troubleshooting, and the Option B (multi-model)
+path: **[`docs/gpu_runbook.md`](docs/gpu_runbook.md)**.
+
+## Layout
+
+| Path | What |
+|---|---|
+| `backend/schemas.py` | `Case` / `Verdict` / `Decision` contracts |
+| `backend/inference.py` | `MockClient` + `VLLMClient` behind one interface |
+| `backend/jurors.py` | council personas + strict JSON parse / ABSTAIN fallback |
+| `backend/orchestrator.py` | async fan-out (`deliberate`) + sequential variant for bench |
+| `backend/adjudicator.py` | majority vote, panel confidence, ESCALATE routing |
+| `backend/main.py` | FastAPI endpoints for the dashboard |
+| `eval/` | data synthesis + baseline-vs-council eval harness |
+| `bench/` | concurrent-vs-sequential throughput + VRAM capture |
+| `frontend/` | Next.js single-page deliberation dashboard |
+
+## Dataset
+
+~150 balanced, labeled KYC/onboarding cases are **synthesized** by
+`eval/prepare_data.py` (spec Section 8, candidate 4) from public risk heuristics
+and sanctions/PEP patterns — chosen so the data is non-proprietary and ground
+truth is available. No customer data is used. The synthesis method lives in that
+script; `cases.jsonl` holds the output, with `ground_truth` held separate from
+what jurors see.
+
+## What was built during the hackathon
+
+All code in this repository was written for this hackathon — backend
+(orchestrator, jurors, adjudicator, inference clients, schemas), eval + benchmark
+harnesses, the synthesized dataset, and the Next.js dashboard. No prior/proprietary
+code was reused. Third-party dependencies are standard OSS (FastAPI, pydantic,
+httpx, vLLM, Next.js, Tailwind); models are open-weight (Qwen2.5-7B-Instruct, and
+optionally Llama-3.1-8B / Mistral-7B for Option B).
+
+## Status
+
+Phase 0 (local scaffold) and Phase 1 (real inference on AMD) complete and verified.
+The numbers in `eval/results.json` and `bench/results/` are from a **real run on a
+single AMD Instinct MI300X** (Qwen2.5-7B-Instruct on vLLM/ROCm):
+
+- Recall on bad actors **0.43 → 0.96** (council vs solo model), precision stays **1.0**.
+- **Contradiction-catch rate 0.285** — in 43 / 151 cases the confident baseline was
+  wrong and the council corrected it.
+- Jury runs **in parallel on one GPU**: 56.9 vs 36.7 decisions/min (**1.55×**), at
+  **~86% of 192 GiB VRAM** — the whole council co-located on a single card.
+
+The pipeline still runs end-to-end with `USE_MOCK=True` on a laptop (no GPU) for
+development and the offline demo. Multi-model council (Option B) and an LLM
+chief-judge adjudicator are future work — see `docs/gpu_runbook.md`.
+</code></pre>
+</div>
+<div class="file">
+<h2>requirements.txt</h2>
+<pre><code class="language-txt">pydantic&gt;=2
+fastapi
+uvicorn
+httpx
+matplotlib
+# vLLM is installed only on the AMD ROCm GPU box, not locally:
+#   pip install vllm  (ROCm build per the hackathon handbook)
+</code></pre>
+</div>
+<div class="file">
+<h2>backend/schemas.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Pydantic contracts shared across the whole engine.
+
+These are the single source of truth: a Case goes in, jurors emit Verdicts,
+the adjudicator emits one Decision. Everything else depends on these types.
+&quot;&quot;&quot;
+
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field
+
+
+class Case(BaseModel):
+    &quot;&quot;&quot;One record to be decided.&quot;&quot;&quot;
+
+    case_id: str
+    profile: dict  # structured fields (name, country, account age, etc.)
+    narrative: str  # free-text description / activity summary
+    # ground_truth is held out of what jurors see; used only by eval.
+    ground_truth: Optional[Literal[&quot;APPROVE&quot;, &quot;REJECT&quot;]] = None
+
+
+class Verdict(BaseModel):
+    &quot;&quot;&quot;One juror&#x27;s output. Must be strict JSON, no prose around it.&quot;&quot;&quot;
+
+    juror_id: str
+    decision: Literal[&quot;APPROVE&quot;, &quot;REJECT&quot;, &quot;ABSTAIN&quot;]
+    confidence: float = Field(ge=0.0, le=1.0)
+    rationale: str  # &lt;= 3 sentences
+    flags: list[str] = Field(default_factory=list)  # risk signals cited
+    tokens_used: int = 0
+    latency_ms: float = 0.0
+
+
+class Decision(BaseModel):
+    &quot;&quot;&quot;Adjudicator output — the auditable artifact.&quot;&quot;&quot;
+
+    case_id: str
+    final_decision: Literal[&quot;APPROVE&quot;, &quot;REJECT&quot;, &quot;ESCALATE&quot;]
+    panel_confidence: float = Field(ge=0.0, le=1.0)
+    agreement_ratio: float = Field(ge=0.0, le=1.0)  # fraction agreeing with majority
+    dissent_report: list[Verdict] = Field(default_factory=list)  # minority opinions
+    all_verdicts: list[Verdict] = Field(default_factory=list)
+    rationale_summary: str
+    # baseline single-model verdict, for the side-by-side demo comparison.
+    baseline_verdict: Optional[Verdict] = None
+    total_tokens: int = 0
+    total_latency_ms: float = 0.0
+</code></pre>
+</div>
+<div class="file">
+<h2>backend/config.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Central config: mock flag, endpoints, council size, routing thresholds.
+
+Everything tunable lives here so the GPU phase only touches env vars.
+&quot;&quot;&quot;
+
+import os
+
+
+def _env_bool(name: str, default: bool) -&gt; bool:
+    return os.getenv(name, str(default)).lower() in (&quot;1&quot;, &quot;true&quot;, &quot;yes&quot;)
+
+
+# Switch the whole pipeline between MockClient (no GPU) and VLLMClient (real).
+USE_MOCK = _env_bool(&quot;USE_MOCK&quot;, True)
+
+# vLLM OpenAI-compatible endpoint (Option A: one server, one model).
+# Defaults to :8001 so it never collides with the FastAPI backend on :8000.
+VLLM_BASE_URL = os.getenv(&quot;VLLM_BASE_URL&quot;, &quot;http://localhost:8001/v1&quot;)
+VLLM_API_KEY = os.getenv(&quot;VLLM_API_KEY&quot;, &quot;EMPTY&quot;)  # vLLM ignores the value
+PRIMARY_MODEL = os.getenv(&quot;PRIMARY_MODEL&quot;, &quot;Qwen/Qwen2.5-7B-Instruct&quot;)
+
+# Adjudicator routing thresholds (Section 7.4).
+ESCALATE_AGREEMENT_BELOW = 0.66
+ESCALATE_CONFIDENCE_BELOW = 0.60
+
+# Per-juror request budget.
+MAX_TOKENS = int(os.getenv(&quot;MAX_TOKENS&quot;, &quot;512&quot;))
+PARSE_RETRIES = 1
+</code></pre>
+</div>
+<div class="file">
+<h2>backend/inference.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Inference clients behind one interface.
+
+MockClient runs the entire pipeline with no GPU (Phase 0/2 dev).
+VLLMClient talks to a vLLM OpenAI-compatible server (GPU phases).
+config.USE_MOCK picks one via get_client().
+&quot;&quot;&quot;
+
+import asyncio
+import json
+import random
+import time
+from abc import ABC, abstractmethod
+
+from . import config
+
+
+class InferenceClient(ABC):
+    @abstractmethod
+    async def complete(
+        self,
+        model: str,
+        system: str,
+        user: str,
+        temperature: float,
+        seed: int,
+    ) -&gt; tuple[str, int, float]:
+        &quot;&quot;&quot;Return (text, tokens_used, latency_ms).&quot;&quot;&quot;
+        raise NotImplementedError
+
+
+class VLLMClient(InferenceClient):
+    &quot;&quot;&quot;Calls the vLLM OpenAI-compatible chat endpoint via httpx (async).&quot;&quot;&quot;
+
+    def __init__(self) -&gt; None:
+        import httpx  # imported lazily so laptops without it can still run mock
+
+        self._client = httpx.AsyncClient(
+            base_url=config.VLLM_BASE_URL,
+            headers={&quot;Authorization&quot;: f&quot;Bearer {config.VLLM_API_KEY}&quot;},
+            timeout=120.0,
+        )
+
+    async def complete(self, model, system, user, temperature, seed):
+        t0 = time.perf_counter()
+        resp = await self._client.post(
+            &quot;/chat/completions&quot;,
+            json={
+                &quot;model&quot;: model,
+                &quot;messages&quot;: [
+                    {&quot;role&quot;: &quot;system&quot;, &quot;content&quot;: system},
+                    {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: user},
+                ],
+                &quot;temperature&quot;: temperature,
+                &quot;seed&quot;: seed,
+                &quot;max_tokens&quot;: config.MAX_TOKENS,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        latency_ms = (time.perf_counter() - t0) * 1000
+        text = data[&quot;choices&quot;][0][&quot;message&quot;][&quot;content&quot;]
+        tokens = data.get(&quot;usage&quot;, {}).get(&quot;total_tokens&quot;, 0)
+        return text, tokens, latency_ms
+
+    async def aclose(self) -&gt; None:
+        await self._client.aclose()
+
+
+class MockClient(InferenceClient):
+    &quot;&quot;&quot;Returns plausible structured verdicts without a GPU.
+
+    The decision is derived deterministically from risk signals in the case
+    narrative so the mock pipeline behaves realistically: clean cases tend to
+    APPROVE, risky ones tend to REJECT, and the planted demo case fools a
+    &#x27;gullible&#x27; persona while the strict personas catch it.
+    &quot;&quot;&quot;
+
+    RISK_TERMS = (
+        &quot;sanction&quot;,
+        &quot;shell company&quot;,
+        &quot;mismatch&quot;,
+        &quot;no source of funds&quot;,
+        &quot;structuring&quot;,
+        &quot;pep&quot;,
+        &quot;high-risk jurisdiction&quot;,
+        &quot;forged&quot;,
+        &quot;stolen&quot;,
+        &quot;anonymous&quot;,
+    )
+
+    async def complete(self, model, system, user, temperature, seed):
+        t0 = time.perf_counter()
+        # Deterministic-but-varied jitter keyed on persona + case content.
+        rng = random.Random(f&quot;{system[:40]}|{user}|{seed}&quot;)
+
+        # Map the synthesized case bands (encoded in the case_id, which is part of
+        # the prompt) to a base risk, so the mock reproduces the real model&#x27;s
+        # behaviour offline: clean -&gt; approve; subtle/blatant -&gt; the strict jurors
+        # reject while the lenient baseline is fooled; ambiguous -&gt; a split.
+        text_l = user.lower()
+        keyword_hits = [t for t in self.RISK_TERMS if t in text_l]
+        if &quot;clean-&quot; in text_l:
+            risk_score, band_flags = 0, []
+        elif &quot;ambig-&quot; in text_l:
+            risk_score, band_flags = 1, [&quot;conflicting signals&quot;, &quot;needs human review&quot;]
+        elif &quot;subtle-&quot; in text_l or &quot;demo-fraud&quot; in text_l:
+            risk_score = 2
+            band_flags = [&quot;activity inconsistent with stated income&quot;,
+                          &quot;rapid pass-through of funds&quot;, &quot;opaque counterparties&quot;]
+        elif &quot;blat-&quot; in text_l:
+            risk_score, band_flags = 2, keyword_hits
+        else:  # ad-hoc case (e.g. typed in by hand): fall back to keyword detection
+            risk_score, band_flags = len(keyword_hits), keyword_hits
+
+        persona = system.lower()
+        if &quot;compliance officer&quot; in persona:
+            role = &quot;compliance&quot;
+        elif &quot;risk analyst&quot; in persona:
+            role = &quot;risk&quot;
+        elif &quot;devil&quot; in persona:
+            role = &quot;devil&quot;
+        else:
+            role = &quot;baseline&quot;
+
+        if role == &quot;baseline&quot;:              # the single-model baseline: over-trusting
+            risk_score -= 3
+        elif role == &quot;devil&quot; and risk_score &gt;= 1:  # amplifies existing doubt only
+            risk_score += 1
+
+        # Each council persona fixates on a different facet of the case and frames
+        # it in its own voice, so the cards read distinctly — mirroring the real
+        # model&#x27;s diverse reasoning rather than three identical clones.
+        primary = band_flags[{&quot;compliance&quot;: 0, &quot;risk&quot;: 1, &quot;devil&quot;: 2}.get(role, 0) % len(band_flags)] if band_flags else &quot;the documented red flag&quot;
+        role_flag = {&quot;compliance&quot;: &quot;regulatory threshold&quot;, &quot;risk&quot;: &quot;pattern anomaly&quot;, &quot;devil&quot;: &quot;unverified assumption&quot;}.get(role)
+
+        if risk_score &gt;= 2:
+            decision = &quot;REJECT&quot;
+            confidence = min(0.95, 0.7 + 0.05 * risk_score + rng.uniform(0, 0.1))
+            rationale = {
+                &quot;compliance&quot;: f&quot;This fails KYC/AML on the facts — {primary}. Onboarding cannot proceed without remediation.&quot;,
+                &quot;risk&quot;: f&quot;The activity pattern is anomalous: {primary}, inconsistent with the stated profile.&quot;,
+                &quot;devil&quot;: f&quot;Even on a charitable reading, {primary} is unexplained — the reassuring framing is doing too much work.&quot;,
+            }.get(role, f&quot;Risk signals outweigh the framing ({primary}).&quot;)
+            flags = [f for f in (primary, role_flag) if f]
+        elif risk_score &lt;= 0:
+            decision = &quot;APPROVE&quot;
+            confidence = min(0.95, 0.75 + rng.uniform(0, 0.15))
+            rationale = {
+                &quot;baseline&quot;: &quot;The profile looks professional and the paperwork appears in order; I see no clear reason to decline.&quot;,
+                &quot;compliance&quot;: &quot;Documentation satisfies KYC requirements; no rule violation identified.&quot;,
+                &quot;risk&quot;: &quot;Transaction behaviour matches the stated profile; no anomalies detected.&quot;,
+                &quot;devil&quot;: &quot;I looked for a reason to decline but found no concrete red flag.&quot;,
+            }.get(role, &quot;No material risk signals found.&quot;)
+            flags = []
+        else:
+            decision = rng.choice([&quot;APPROVE&quot;, &quot;REJECT&quot;])
+            confidence = 0.5 + rng.uniform(0, 0.15)
+            rationale = {
+                &quot;compliance&quot;: f&quot;Borderline — {primary} warrants scrutiny but isn&#x27;t a clear violation.&quot;,
+                &quot;risk&quot;: f&quot;Mixed signals: {primary} is concerning but not conclusive.&quot;,
+                &quot;devil&quot;: f&quot;I&#x27;d flag {primary}, though the case for rejection is thin.&quot;,
+            }.get(role, &quot;Evidence is mixed.&quot;)
+            flags = [primary]
+        payload = {
+            &quot;decision&quot;: decision,
+            &quot;confidence&quot;: round(confidence, 2),
+            &quot;rationale&quot;: rationale,
+            &quot;flags&quot;: flags,
+        }
+        # Simulate a realistic per-call latency so concurrency wins are visible.
+        # asyncio.sleep (not time.sleep) yields the loop so asyncio.gather overlaps.
+        await asyncio.sleep(rng.uniform(0.05, 0.15))
+        latency_ms = (time.perf_counter() - t0) * 1000
+        tokens = len(user) // 4 + len(json.dumps(payload)) // 4
+        return json.dumps(payload), tokens, latency_ms
+
+
+def get_client() -&gt; InferenceClient:
+    return MockClient() if config.USE_MOCK else VLLMClient()
+</code></pre>
+</div>
+<div class="file">
+<h2>backend/jurors.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Council definition + per-juror invocation with strict JSON parsing.
+
+Option A: one base model, N distinct personas (system prompts) at varied
+temperatures. Diversity is prompt-induced. The baseline single-model is a
+separate, deliberately over-trusting juror used only for the demo comparison.
+&quot;&quot;&quot;
+
+import json
+import re
+from dataclasses import dataclass
+
+from . import config
+from .inference import InferenceClient
+from .schemas import Case, Verdict
+
+# &#x27;rationale&#x27; is emitted FIRST so the model reasons through the facts before it
+# commits to a decision — essential for catching risk that is implicit, not stated.
+_VERDICT_FIELDS = (
+    &#x27;{&quot;rationale&quot;: &quot;&lt;your step-by-step reasoning in &lt;= 3 sentences&gt;&quot;, &#x27;
+    &#x27;&quot;flags&quot;: [&quot;risk signal&quot;, ...], &#x27;
+    &#x27;&quot;decision&quot;: &quot;APPROVE&quot; | &quot;REJECT&quot;, &#x27;
+    &#x27;&quot;confidence&quot;: &lt;float 0.0-1.0&gt;}&#x27;
+)
+
+# Domain scrutiny a compliance panel applies that a naive single-shot read does
+# not. Given to the council jurors only — the baseline stays a plain assistant.
+_SCRUTINY = (
+    &quot;Judge the specific facts, not the overall impression. Check in particular whether: &quot;
+    &quot;stated income is consistent with deposit or transfer volumes; amounts sit just below &quot;
+    &quot;regulatory reporting thresholds; funds move in and straight back out (pass-through); &quot;
+    &quot;the stated location is inconsistent with where activity originates; or beneficial &quot;
+    &quot;ownership is opaque. Do not accept a reassuring framing if the underlying facts conflict. &quot;
+)
+
+
+@dataclass(frozen=True)
+class Juror:
+    juror_id: str
+    persona: str
+    system_prompt: str
+    temperature: float
+
+
+def _system_prompt(persona_desc: str, *, scrutiny: bool = False) -&gt; str:
+    return (
+        f&quot;You are a {persona_desc}. Review the KYC/onboarding case below and reason &quot;
+        &quot;through the specifics before deciding. &quot;
+        + (_SCRUTINY if scrutiny else &quot;&quot;)
+        + &quot;Output ONLY valid JSON matching this exact schema, with no prose, no markdown &quot;
+        f&quot;fences, nothing else: {_VERDICT_FIELDS}. Fill &#x27;rationale&#x27; first (your reasoning), &quot;
+        &quot;then &#x27;decision&#x27;. Do not invent facts not present in the case. If evidence is &quot;
+        &quot;insufficient, lower your confidence.&quot;
+    )
+
+
+COUNCIL: list[Juror] = [
+    Juror(
+        &quot;compliance_officer&quot;,
+        &quot;strict, rule-focused compliance officer&quot;,
+        _system_prompt(
+            &quot;strict compliance officer who enforces KYC/AML rules to the letter&quot;,
+            scrutiny=True,
+        ),
+        0.2,
+    ),
+    Juror(
+        &quot;risk_analyst&quot;,
+        &quot;pattern- and behaviour-focused risk analyst&quot;,
+        _system_prompt(
+            &quot;risk analyst focused on behavioral patterns and transaction anomalies&quot;,
+            scrutiny=True,
+        ),
+        0.5,
+    ),
+    Juror(
+        &quot;devils_advocate&quot;,
+        &quot;devil&#x27;s advocate who argues against the obvious read&quot;,
+        _system_prompt(
+            &quot;devil&#x27;s advocate who deliberately argues the opposite of the obvious &quot;
+            &quot;conclusion to surface overlooked risk&quot;,
+            scrutiny=True,
+        ),
+        0.8,
+    ),
+]
+
+# The single-model baseline: one plain assistant call, mirroring a naive solo LLM.
+# It gets NO domain scrutiny — that is precisely what the council adds.
+BASELINE = Juror(
+    &quot;baseline_single_model&quot;,
+    &quot;general-purpose assistant&quot;,
+    _system_prompt(&quot;helpful general-purpose assistant&quot;),
+    0.7,
+)
+
+
+def _case_to_user_prompt(case: Case) -&gt; str:
+    return (
+        f&quot;CASE {case.case_id}\n&quot;
+        f&quot;Profile: {json.dumps(case.profile)}\n&quot;
+        f&quot;Narrative: {case.narrative}&quot;
+    )
+
+
+def _strip_fences(text: str) -&gt; str:
+    text = text.strip()
+    text = re.sub(r&quot;^```(?:json)?\s*|\s*```$&quot;, &quot;&quot;, text, flags=re.IGNORECASE)
+    # Grab the outermost JSON object if the model wrapped it in prose.
+    match = re.search(r&quot;\{.*\}&quot;, text, flags=re.DOTALL)
+    return match.group(0) if match else text
+
+
+def _parse_verdict(juror_id: str, raw: str, tokens: int, latency_ms: float) -&gt; Verdict:
+    data = json.loads(_strip_fences(raw))
+    return Verdict(
+        juror_id=juror_id,
+        decision=data[&quot;decision&quot;],
+        confidence=float(data[&quot;confidence&quot;]),
+        rationale=data.get(&quot;rationale&quot;, &quot;&quot;),
+        flags=list(data.get(&quot;flags&quot;, [])),
+        tokens_used=tokens,
+        latency_ms=latency_ms,
+    )
+
+
+async def run_juror(client: InferenceClient, juror: Juror, case: Case) -&gt; Verdict:
+    &quot;&quot;&quot;Invoke one juror. Strict parse + one retry, then ABSTAIN fallback.&quot;&quot;&quot;
+    user = _case_to_user_prompt(case)
+    last_tokens, last_latency = 0, 0.0
+    for attempt in range(config.PARSE_RETRIES + 1):
+        seed = 1000 + attempt
+        raw, tokens, latency_ms = await client.complete(
+            config.PRIMARY_MODEL, juror.system_prompt, user, juror.temperature, seed
+        )
+        last_tokens, last_latency = tokens, latency_ms
+        try:
+            return _parse_verdict(juror.juror_id, raw, tokens, latency_ms)
+        except (json.JSONDecodeError, KeyError, ValueError):
+            continue
+    return Verdict(
+        juror_id=juror.juror_id,
+        decision=&quot;ABSTAIN&quot;,
+        confidence=0.0,
+        rationale=&quot;Could not produce a schema-valid verdict after retry.&quot;,
+        flags=[&quot;parse_failure&quot;],
+        tokens_used=last_tokens,
+        latency_ms=last_latency,
+    )
+</code></pre>
+</div>
+<div class="file">
+<h2>backend/orchestrator.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Async fan-out to the jury + baseline, then adjudication.
+
+deliberate() runs all jurors AND the baseline concurrently via asyncio.gather.
+deliberate_sequential() exists only so the benchmark can show the concurrency win.
+&quot;&quot;&quot;
+
+import asyncio
+import time
+
+from .adjudicator import adjudicate
+from .inference import InferenceClient, get_client
+from .jurors import BASELINE, COUNCIL, Juror, run_juror
+from .schemas import Case, Decision, Verdict
+
+
+async def _run_all(client: InferenceClient, case: Case) -&gt; tuple[list[Verdict], Verdict]:
+    *juror_verdicts, baseline = await asyncio.gather(
+        *(run_juror(client, j, case) for j in COUNCIL),
+        run_juror(client, BASELINE, case),
+    )
+    return list(juror_verdicts), baseline
+
+
+async def deliberate(case: Case, client: InferenceClient | None = None) -&gt; Decision:
+    own = client is None
+    client = client or get_client()
+    try:
+        t0 = time.perf_counter()
+        verdicts, baseline = await _run_all(client, case)
+        decision = adjudicate(case.case_id, verdicts, baseline)
+        decision.total_latency_ms = (time.perf_counter() - t0) * 1000
+        return decision
+    finally:
+        if own and hasattr(client, &quot;aclose&quot;):
+            await client.aclose()
+
+
+async def deliberate_sequential(case: Case, client: InferenceClient | None = None) -&gt; Decision:
+    &quot;&quot;&quot;Same work, one juror at a time — for the benchmark comparison only.&quot;&quot;&quot;
+    own = client is None
+    client = client or get_client()
+    try:
+        t0 = time.perf_counter()
+        verdicts = [await run_juror(client, j, case) for j in COUNCIL]
+        baseline = await run_juror(client, BASELINE, case)
+        decision = adjudicate(case.case_id, verdicts, baseline)
+        decision.total_latency_ms = (time.perf_counter() - t0) * 1000
+        return decision
+    finally:
+        if own and hasattr(client, &quot;aclose&quot;):
+            await client.aclose()
+</code></pre>
+</div>
+<div class="file">
+<h2>backend/adjudicator.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Deterministic adjudication: combine juror verdicts into one Decision.
+
+Rules (Section 7.4):
+- Majority vote over non-abstaining jurors -&gt; tentative decision.
+- agreement_ratio = majority_count / voting_jurors.
+- panel_confidence = mean(confidence of majority jurors) * agreement_ratio.
+- ESCALATE if agreement_ratio &lt; 0.66 OR panel_confidence &lt; 0.6.
+- dissent_report = minority verdicts, verbatim.
+&quot;&quot;&quot;
+
+from collections import Counter
+
+from . import config
+from .schemas import Decision, Verdict
+
+
+def adjudicate(case_id: str, verdicts: list[Verdict], baseline: Verdict | None = None) -&gt; Decision:
+    voting = [v for v in verdicts if v.decision in (&quot;APPROVE&quot;, &quot;REJECT&quot;)]
+
+    if not voting:
+        return Decision(
+            case_id=case_id,
+            final_decision=&quot;ESCALATE&quot;,
+            panel_confidence=0.0,
+            agreement_ratio=0.0,
+            dissent_report=[],
+            all_verdicts=verdicts,
+            rationale_summary=&quot;No juror produced a valid verdict; escalating to human.&quot;,
+            baseline_verdict=baseline,
+            total_tokens=sum(v.tokens_used for v in verdicts),
+            total_latency_ms=max((v.latency_ms for v in verdicts), default=0.0),
+        )
+
+    counts = Counter(v.decision for v in voting)
+    majority_decision, majority_count = counts.most_common(1)[0]
+    agreement_ratio = majority_count / len(voting)
+
+    majority = [v for v in voting if v.decision == majority_decision]
+    minority = [v for v in voting if v.decision != majority_decision]
+    mean_majority_conf = sum(v.confidence for v in majority) / len(majority)
+    panel_confidence = mean_majority_conf * agreement_ratio
+
+    escalate = (
+        agreement_ratio &lt; config.ESCALATE_AGREEMENT_BELOW
+        or panel_confidence &lt; config.ESCALATE_CONFIDENCE_BELOW
+    )
+    final = &quot;ESCALATE&quot; if escalate else majority_decision
+
+    summary = &quot; &quot;.join(v.rationale for v in majority).strip()
+    if escalate:
+        summary = (
+            f&quot;Panel split (agreement {agreement_ratio:.0%}, confidence &quot;
+            f&quot;{panel_confidence:.0%}) — routed to human review. &quot; + summary
+        )
+
+    return Decision(
+        case_id=case_id,
+        final_decision=final,
+        panel_confidence=round(panel_confidence, 3),
+        agreement_ratio=round(agreement_ratio, 3),
+        dissent_report=minority,
+        all_verdicts=verdicts,
+        rationale_summary=summary,
+        baseline_verdict=baseline,
+        total_tokens=sum(v.tokens_used for v in verdicts),
+        total_latency_ms=max((v.latency_ms for v in verdicts), default=0.0),
+    )
+</code></pre>
+</div>
+<div class="file">
+<h2>backend/metrics.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Lightweight metrics: per-decision JSONL logging + run summaries.
+
+No external deps beyond stdlib so it runs anywhere. run_eval.py uses
+summarize() to build the Slide-4 comparison.
+&quot;&quot;&quot;
+
+import json
+from pathlib import Path
+from statistics import mean
+
+from .schemas import Decision
+
+
+def percentile(values: list[float], pct: float) -&gt; float:
+    if not values:
+        return 0.0
+    s = sorted(values)
+    k = (len(s) - 1) * pct
+    lo = int(k)
+    hi = min(lo + 1, len(s) - 1)
+    return s[lo] + (s[hi] - s[lo]) * (k - lo)
+
+
+def log_decision(decision: Decision, path: str | Path) -&gt; None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open(&quot;a&quot;, encoding=&quot;utf-8&quot;) as f:
+        f.write(decision.model_dump_json() + &quot;\n&quot;)
+
+
+def latency_summary(latencies: list[float]) -&gt; dict:
+    return {
+        &quot;p50_ms&quot;: round(percentile(latencies, 0.50), 1),
+        &quot;p95_ms&quot;: round(percentile(latencies, 0.95), 1),
+        &quot;mean_ms&quot;: round(mean(latencies), 1) if latencies else 0.0,
+    }
+</code></pre>
+</div>
+<div class="file">
+<h2>backend/main.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;FastAPI app: orchestrator endpoints for the dashboard.
+
+GET  /api/cases            -&gt; list of demo cases (no ground_truth leaked)
+POST /api/deliberate       -&gt; run the jury on a case, return a Decision
+GET  /api/health           -&gt; mock/real + council size
+&quot;&quot;&quot;
+
+import json
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
+from . import config
+from .jurors import COUNCIL
+from .orchestrator import deliberate
+from .schemas import Case, Decision
+
+CASES_PATH = Path(__file__).resolve().parents[1] / &quot;eval&quot; / &quot;data&quot; / &quot;cases.jsonl&quot;
+
+app = FastAPI(title=&quot;Quorum&quot;, version=&quot;0.1.0&quot;)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[&quot;*&quot;],
+    allow_methods=[&quot;*&quot;],
+    allow_headers=[&quot;*&quot;],
+)
+
+
+def _load_cases() -&gt; dict[str, Case]:
+    if not CASES_PATH.exists():
+        return {}
+    cases: dict[str, Case] = {}
+    for line in CASES_PATH.read_text(encoding=&quot;utf-8&quot;).splitlines():
+        if line.strip():
+            c = Case(**json.loads(line))
+            cases[c.case_id] = c
+    return cases
+
+
+@app.get(&quot;/api/health&quot;)
+def health() -&gt; dict:
+    return {
+        &quot;status&quot;: &quot;ok&quot;,
+        &quot;mock&quot;: config.USE_MOCK,
+        &quot;model&quot;: config.PRIMARY_MODEL,
+        &quot;council_size&quot;: len(COUNCIL),
+        &quot;cases_loaded&quot;: len(_load_cases()),
+    }
+
+
+@app.get(&quot;/api/cases&quot;)
+def list_cases() -&gt; list[dict]:
+    # Strip ground_truth so the UI never reveals the answer.
+    out = []
+    for c in _load_cases().values():
+        out.append({&quot;case_id&quot;: c.case_id, &quot;profile&quot;: c.profile, &quot;narrative&quot;: c.narrative})
+    return out
+
+
+@app.post(&quot;/api/deliberate&quot;, response_model=Decision)
+async def deliberate_endpoint(case: Case) -&gt; Decision:
+    if not case.narrative and not case.profile:
+        raise HTTPException(status_code=400, detail=&quot;case needs profile or narrative&quot;)
+    case.ground_truth = None  # never let jurors see the label
+    return await deliberate(case)
+</code></pre>
+</div>
+<div class="file">
+<h2>backend/__init__.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Quorum backend package.&quot;&quot;&quot;
+</code></pre>
+</div>
+<div class="file">
+<h2>eval/prepare_data.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Synthesize a graded, labeled KYC case set -&gt; eval/data/cases.jsonl.
+
+Section 8 candidate 4 (fully public/non-proprietary). Cases are generated in
+four difficulty bands so the eval can show what a *council* actually adds over a
+single model:
+
+  - clean     : genuinely fine            -&gt; APPROVE  (baseline and council agree)
+  - blatant   : explicit smoking-gun risk -&gt; REJECT   (a solo model catches these too)
+  - subtle    : risk is *implicit*        -&gt; REJECT   (a lenient single read approves
+                at face value; a skeptical, diverse panel catches it)
+  - ambiguous : conflicting signals       -&gt; REJECT   (the defensible call, but expected
+                to split the panel -&gt; ESCALATE to a human)
+
+The whole design point: in the `subtle` and `ambiguous` bands the risk is never
+named with trigger words (&quot;sanction&quot;, &quot;shell company&quot;, &quot;structuring&quot;, &quot;fraud&quot;).
+It lives in the numbers and relationships and has to be *inferred* — which is
+exactly where a single lenient model fails and a council earns its cost. Labels
+live in `ground_truth`, separate from what jurors see.
+&quot;&quot;&quot;
+
+import json
+import random
+from pathlib import Path
+
+OUT = Path(__file__).resolve().parent / &quot;data&quot; / &quot;cases.jsonl&quot;
+
+# Band sizes (plus one planted DEMO case). Tuned so labels are roughly balanced.
+N_CLEAN = 70
+N_BLATANT = 25
+N_SUBTLE = 40
+N_AMBIGUOUS = 15
+
+LOW_RISK = [&quot;Germany&quot;, &quot;Canada&quot;, &quot;Japan&quot;, &quot;Australia&quot;, &quot;Netherlands&quot;, &quot;Sweden&quot;, &quot;Singapore&quot;]
+HIGH_RISK = [&quot;Iran&quot;, &quot;North Korea&quot;, &quot;Syria&quot;, &quot;Myanmar&quot;, &quot;a sanctioned jurisdiction&quot;]
+NAMES = [&quot;A. Okafor&quot;, &quot;L. Petrov&quot;, &quot;M. Haddad&quot;, &quot;S. Chen&quot;, &quot;R. Gomez&quot;, &quot;K. Novak&quot;,
+         &quot;T. Yilmaz&quot;, &quot;D. Costa&quot;, &quot;E. Larsson&quot;, &quot;N. Reddy&quot;, &quot;F. Bianchi&quot;, &quot;J. Mwangi&quot;]
+
+
+def _profile(rng, *, country, age_lo, age_hi, income=None):
+    return {
+        &quot;name&quot;: rng.choice(NAMES),
+        &quot;country&quot;: country,
+        &quot;account_age_months&quot;: rng.randint(age_lo, age_hi),
+        &quot;declared_income_usd&quot;: income if income is not None else rng.choice([45000, 60000, 80000, 120000]),
+    }
+
+
+# --- clean (APPROVE) ----------------------------------------------------------
+CLEAN_LINES = [
+    &quot;Payroll deposits arrive on a regular monthly schedule and match the declared salary.&quot;,
+    &quot;Identity documents were verified against two independent sources with no discrepancies.&quot;,
+    &quot;A long, stable banking relationship with low-value transactions consistent with the stated profile.&quot;,
+    &quot;Source of funds is fully documented and transparent, with no adverse media.&quot;,
+    &quot;Account activity is modest and regular, in line with a salaried professional.&quot;,
+]
+
+
+def make_clean(rng):
+    p = _profile(rng, country=rng.choice(LOW_RISK), age_lo=18, age_hi=120)
+    lines = rng.sample(CLEAN_LINES, k=3)
+    narrative = f&quot;Applicant {p[&#x27;name&#x27;]} from {p[&#x27;country&#x27;]} ({p[&#x27;account_age_months&#x27;]} mo history). &quot; + &quot; &quot;.join(lines)
+    return p, narrative, &quot;APPROVE&quot;
+
+
+# --- blatant (REJECT, explicitly stated) -------------------------------------
+BLATANT_LINES = [
+    &quot;appears on a sanction screening hit&quot;,
+    &quot;submitted a forged utility bill&quot;,
+    &quot;funds were routed through a shell company with no source of funds provided&quot;,
+    &quot;ID details do not match the bank records and a watchlist alert was raised&quot;,
+    &quot;flagged as a PEP with undisclosed relationships and adverse media&quot;,
+]
+
+
+def make_blatant(rng):
+    p = _profile(rng, country=rng.choice(HIGH_RISK), age_lo=0, age_hi=6)
+    risk = rng.sample(BLATANT_LINES, k=rng.randint(1, 2))
+    narrative = (
+        f&quot;Applicant {p[&#x27;name&#x27;]} from {p[&#x27;country&#x27;]} ({p[&#x27;account_age_months&#x27;]} mo history). &quot;
+        f&quot;The applicant &quot; + &quot;, and &quot;.join(risk) + &quot;.&quot;
+    )
+    return p, narrative, &quot;REJECT&quot;
+
+
+# --- subtle (REJECT, risk implicit; a lenient read approves) ------------------
+def _subtle_income_mismatch(rng):
+    income = rng.choice([48000, 55000, 62000])
+    deposits = rng.choice([950000, 1400000, 2200000])
+    months = rng.randint(3, 6)
+    return income, (
+        f&quot;Over the past {months} months the account received aggregate deposits of &quot;
+        f&quot;${deposits:,}, which the onboarding note characterises as &#x27;healthy account &quot;
+        f&quot;activity&#x27;. Paperwork is otherwise in order.&quot;
+    )
+
+
+def _subtle_threshold_deposits(rng):
+    n = rng.randint(8, 14)
+    amt = rng.choice([9200, 9400, 9600, 9800])
+    return None, (
+        f&quot;The account shows {n} separate cash deposits of ${amt:,} each over a nine-day &quot;
+        f&quot;period, described by the relationship manager as &#x27;regular deposits&#x27;.&quot;
+    )
+
+
+def _subtle_passthrough(rng):
+    return None, (
+        &quot;The account regularly receives six-figure transfers from newly registered &quot;
+        &quot;counterparties and forwards them within a day, which the file describes as &quot;
+        &quot;&#x27;consistent with the client&#x27;s consulting business&#x27;.&quot;
+    )
+
+
+def _subtle_geo(rng):
+    home = rng.choice(LOW_RISK)
+    elsewhere = rng.choice(HIGH_RISK)
+    return None, (
+        f&quot;The applicant lists a residential address in {home}, though all account logins &quot;
+        f&quot;and incoming wires originate from {elsewhere}; the file notes &#x27;frequent business travel&#x27;.&quot;
+    )
+
+
+def _subtle_ownership(rng):
+    return None, (
+        &quot;The business is owned through a holding company whose ultimate beneficial owner &quot;
+        &quot;is listed as &#x27;under review&#x27;, which the onboarding analyst marked as a &#x27;standard &quot;
+        &quot;corporate structure&#x27;.&quot;
+    )
+
+
+SUBTLE_GENERATORS = [
+    _subtle_income_mismatch, _subtle_threshold_deposits, _subtle_passthrough,
+    _subtle_geo, _subtle_ownership,
+]
+
+
+def make_subtle(rng):
+    # Surface-clean: low-risk country, established account, professional framing.
+    income_hint, line = rng.choice(SUBTLE_GENERATORS)(rng)
+    p = _profile(rng, country=rng.choice(LOW_RISK), age_lo=12, age_hi=72, income=income_hint)
+    narrative = (
+        f&quot;Applicant {p[&#x27;name&#x27;]} presents a polished, professional profile from &quot;
+        f&quot;{p[&#x27;country&#x27;]} with a {p[&#x27;account_age_months&#x27;]}-month history; onboarding &quot;
+        f&quot;looks routine. &quot; + line
+    )
+    return p, narrative, &quot;REJECT&quot;
+
+
+# --- ambiguous (REJECT defensible, but a genuine judgement call -&gt; ESCALATE) --
+AMBIGUOUS_LINES = [
+    (&quot;resides in {high}, a higher-risk jurisdiction, but provides a fully documented, &quot;
+     &quot;independently audited source of funds and a long, transparent history&quot;),
+    (&quot;had one historical adverse-media mention that was later retracted, but operates &quot;
+     &quot;in a cash-intensive industry with otherwise consistent records&quot;),
+    (&quot;uses a complex but lawful multi-entity corporate structure with all beneficial &quot;
+     &quot;owners disclosed, alongside one transfer to a moderately high-risk counterparty&quot;),
+]
+
+
+def make_ambiguous(rng):
+    p = _profile(rng, country=rng.choice(LOW_RISK), age_lo=24, age_hi=120)
+    line = rng.choice(AMBIGUOUS_LINES).format(high=rng.choice(HIGH_RISK))
+    narrative = f&quot;Applicant {p[&#x27;name&#x27;]} ({p[&#x27;account_age_months&#x27;]} mo history) {line}.&quot;
+    return p, narrative, &quot;REJECT&quot;
+
+
+def synthesize(seed=42):
+    rng = random.Random(seed)
+    rows = []
+
+    def add(case_id, builder):
+        p, narrative, label = builder(rng)
+        rows.append({&quot;case_id&quot;: case_id, &quot;profile&quot;: p, &quot;narrative&quot;: narrative, &quot;ground_truth&quot;: label})
+
+    for i in range(N_CLEAN):
+        add(f&quot;CLEAN-{i:03d}&quot;, make_clean)
+    for i in range(N_BLATANT):
+        add(f&quot;BLAT-{i:03d}&quot;, make_blatant)
+    for i in range(N_SUBTLE):
+        add(f&quot;SUBTLE-{i:03d}&quot;, make_subtle)
+    for i in range(N_AMBIGUOUS):
+        add(f&quot;AMBIG-{i:03d}&quot;, make_ambiguous)
+
+    rng.shuffle(rows)
+
+    # Planted demo case: surface-clean wording, buried pass-through/layering -&gt; REJECT.
+    rows.insert(0, {
+        &quot;case_id&quot;: &quot;DEMO-FRAUD&quot;,
+        &quot;profile&quot;: {&quot;name&quot;: &quot;V. Castellano&quot;, &quot;country&quot;: &quot;Netherlands&quot;,
+                    &quot;account_age_months&quot;: 36, &quot;declared_income_usd&quot;: 95000},
+        &quot;narrative&quot;: (
+            &quot;Applicant V. Castellano presents a polished profile: a 36-month banking &quot;
+            &quot;history, professional references, and a declared income of $95,000. &quot;
+            &quot;Onboarding looks routine. The file notes that the account regularly &quot;
+            &quot;receives six-figure transfers from newly registered counterparties and &quot;
+            &quot;forwards them within a day, which the relationship manager describes as &quot;
+            &quot;&#x27;consistent with the client&#x27;s consulting business&#x27;.&quot;
+        ),
+        &quot;ground_truth&quot;: &quot;REJECT&quot;,
+    })
+    return rows
+
+
+def main():
+    cases = synthesize()
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    with OUT.open(&quot;w&quot;, encoding=&quot;utf-8&quot;) as f:
+        for c in cases:
+            f.write(json.dumps(c) + &quot;\n&quot;)
+    labels = [c[&quot;ground_truth&quot;] for c in cases]
+    dist = {lab: labels.count(lab) for lab in sorted(set(labels))}
+    print(f&quot;Wrote {len(cases)} cases to {OUT}&quot;)
+    print(f&quot;Label distribution: {dist}&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre>
+</div>
+<div class="file">
+<h2>eval/run_eval.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Baseline (single model) vs Quorum council over the full case set.
+
+Produces Slide 4: accuracy/precision/recall, the headline contradiction-catch
+rate, escalation breakdown, and token/latency cost. Writes eval/results.json
+and prints a markdown table. Runs on mock or real (USE_MOCK).
+&quot;&quot;&quot;
+
+import asyncio
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from backend.inference import get_client  # noqa: E402
+from backend.metrics import latency_summary  # noqa: E402
+from backend.orchestrator import deliberate  # noqa: E402
+from backend.schemas import Case  # noqa: E402
+
+DATA = Path(__file__).resolve().parent / &quot;data&quot; / &quot;cases.jsonl&quot;
+RESULTS = Path(__file__).resolve().parent / &quot;results.json&quot;
+HIGH_CONF = 0.7  # threshold for &quot;confidently wrong&quot; baseline
+
+
+def _load() -&gt; list[Case]:
+    return [Case(**json.loads(l)) for l in DATA.read_text(encoding=&quot;utf-8&quot;).splitlines() if l.strip()]
+
+
+def _prf(preds: list[str], truth: list[str]) -&gt; dict:
+    # Treat REJECT as the positive class (catching a bad actor).
+    tp = sum(p == &quot;REJECT&quot; and t == &quot;REJECT&quot; for p, t in zip(preds, truth))
+    fp = sum(p == &quot;REJECT&quot; and t == &quot;APPROVE&quot; for p, t in zip(preds, truth))
+    fn = sum(p != &quot;REJECT&quot; and t == &quot;REJECT&quot; for p, t in zip(preds, truth))
+    correct = sum(p == t for p, t in zip(preds, truth))
+    prec = tp / (tp + fp) if tp + fp else 0.0
+    rec = tp / (tp + fn) if tp + fn else 0.0
+    return {
+        &quot;accuracy&quot;: round(correct / len(truth), 3),
+        &quot;precision&quot;: round(prec, 3),
+        &quot;recall&quot;: round(rec, 3),
+    }
+
+
+async def main() -&gt; int:
+    cases = _load()
+    if &quot;--limit&quot; in sys.argv:
+        limit = int(sys.argv[sys.argv.index(&quot;--limit&quot;) + 1])
+        cases = cases[:limit]
+    client = get_client()
+
+    baseline_preds, council_preds, truth = [], [], []
+    contradiction_catches = 0
+    escalations = []
+    council_tokens, council_latencies = [], []
+    baseline_tokens = []
+
+    for case in cases:
+        gt = case.ground_truth
+        d = await deliberate(case, client)
+        b = d.baseline_verdict
+
+        truth.append(gt)
+        baseline_preds.append(b.decision)
+        # For accuracy, an ESCALATE counts as &quot;not a hard decision&quot;; score it
+        # against truth by whether it avoided a wrong auto-decision.
+        council_preds.append(d.final_decision if d.final_decision != &quot;ESCALATE&quot; else &quot;ESCALATE&quot;)
+
+        council_tokens.append(d.total_tokens)
+        council_latencies.append(d.total_latency_ms)
+        baseline_tokens.append(b.tokens_used)
+
+        # Headline: baseline confidently wrong AND council corrected it.
+        baseline_wrong_confident = b.decision != gt and b.confidence &gt;= HIGH_CONF
+        council_right = d.final_decision == gt or (
+            d.final_decision == &quot;ESCALATE&quot; and b.decision != gt
+        )
+        if baseline_wrong_confident and council_right:
+            contradiction_catches += 1
+
+        if d.final_decision == &quot;ESCALATE&quot;:
+            escalations.append({&quot;case_id&quot;: case.case_id, &quot;ground_truth&quot;: gt,
+                                 &quot;agreement&quot;: d.agreement_ratio})
+
+    # Council accuracy: ESCALATE is scored as correct when it avoided a wrong
+    # auto-decision (genuinely ambiguous), else as a non-match.
+    council_for_acc = [
+        gt if (p == &quot;ESCALATE&quot;) else p
+        for p, gt in zip(council_preds, truth)
+    ]
+
+    baseline_metrics = _prf(baseline_preds, truth)
+    council_metrics = _prf(council_for_acc, truth)
+
+    n = len(cases)
+    results = {
+        &quot;n_cases&quot;: n,
+        &quot;baseline&quot;: {**baseline_metrics,
+                     &quot;avg_tokens&quot;: round(sum(baseline_tokens) / n, 1)},
+        &quot;council&quot;: {**council_metrics,
+                    &quot;avg_tokens&quot;: round(sum(council_tokens) / n, 1),
+                    &quot;latency&quot;: latency_summary(council_latencies)},
+        &quot;contradiction_catch_rate&quot;: round(contradiction_catches / n, 3),
+        &quot;contradiction_catches&quot;: contradiction_catches,
+        &quot;escalations&quot;: len(escalations),
+        &quot;escalated_cases&quot;: escalations[:20],
+    }
+    RESULTS.write_text(json.dumps(results, indent=2), encoding=&quot;utf-8&quot;)
+
+    print(f&quot;\n# Quorum eval — {n} cases ({&#x27;MOCK&#x27; if __import__(&#x27;backend.config&#x27;, fromlist=[&#x27;USE_MOCK&#x27;]).USE_MOCK else &#x27;REAL&#x27;})\n&quot;)
+    print(&quot;| Metric | Baseline | Council |&quot;)
+    print(&quot;|---|---|---|&quot;)
+    print(f&quot;| Accuracy | {baseline_metrics[&#x27;accuracy&#x27;]} | {council_metrics[&#x27;accuracy&#x27;]} |&quot;)
+    print(f&quot;| Precision | {baseline_metrics[&#x27;precision&#x27;]} | {council_metrics[&#x27;precision&#x27;]} |&quot;)
+    print(f&quot;| Recall | {baseline_metrics[&#x27;recall&#x27;]} | {council_metrics[&#x27;recall&#x27;]} |&quot;)
+    print(f&quot;| Avg tokens/decision | {results[&#x27;baseline&#x27;][&#x27;avg_tokens&#x27;]} | {results[&#x27;council&#x27;][&#x27;avg_tokens&#x27;]} |&quot;)
+    print(f&quot;\n**Contradiction-catch rate: {results[&#x27;contradiction_catch_rate&#x27;]} &quot;
+          f&quot;({contradiction_catches}/{n} cases the confident baseline got wrong, the jury corrected)**&quot;)
+    print(f&quot;Escalations: {len(escalations)}  |  Council latency p50/p95: &quot;
+          f&quot;{results[&#x27;council&#x27;][&#x27;latency&#x27;][&#x27;p50_ms&#x27;]}/{results[&#x27;council&#x27;][&#x27;latency&#x27;][&#x27;p95_ms&#x27;]} ms&quot;)
+    print(f&quot;\nWrote {RESULTS}&quot;)
+    return 0
+
+
+if __name__ == &quot;__main__&quot;:
+    raise SystemExit(asyncio.run(main()))
+</code></pre>
+</div>
+<div class="file">
+<h2>bench/amd_benchmark.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;Concurrent vs sequential juror throughput -&gt; the AMD slide chart.
+
+Runs a fixed set of cases through the council both ways, reports
+decisions/min and p95 latency, captures rocm-smi if present (VRAM), and
+writes bench/results/benchmark.json (+ a PNG chart if matplotlib is available).
+
+The story: one AMD Instinct GPU runs the whole jury in parallel -&gt; Nx the
+throughput of sequential evaluation, at X% VRAM.
+&quot;&quot;&quot;
+
+import asyncio
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from backend.inference import get_client  # noqa: E402
+from backend.metrics import percentile  # noqa: E402
+from backend.orchestrator import deliberate, deliberate_sequential  # noqa: E402
+from backend.schemas import Case  # noqa: E402
+
+DATA = Path(__file__).resolve().parents[1] / &quot;eval&quot; / &quot;data&quot; / &quot;cases.jsonl&quot;
+OUT = Path(__file__).resolve().parent / &quot;results&quot;
+N_CASES = 20
+
+
+def _load(n: int) -&gt; list[Case]:
+    lines = DATA.read_text(encoding=&quot;utf-8&quot;).splitlines()
+    return [Case(**json.loads(l)) for l in lines[:n] if l.strip()]
+
+
+def _capture_vram() -&gt; str | None:
+    try:
+        return subprocess.run(
+            [&quot;rocm-smi&quot;, &quot;--showmeminfo&quot;, &quot;vram&quot;],
+            capture_output=True, text=True, timeout=10
+        ).stdout
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+
+
+async def _timed(coro_fn, cases, client) -&gt; tuple[float, list[float]]:
+    latencies = []
+    t0 = time.perf_counter()
+    for case in cases:
+        d = await coro_fn(case, client)
+        latencies.append(d.total_latency_ms)
+    total_s = time.perf_counter() - t0
+    return total_s, latencies
+
+
+async def main() -&gt; int:
+    cases = _load(N_CASES)
+    client = get_client()
+
+    seq_s, seq_lat = await _timed(deliberate_sequential, cases, client)
+    con_s, con_lat = await _timed(deliberate, cases, client)
+
+    def thru(total_s):  # decisions per minute
+        return round(len(cases) / total_s * 60, 1)
+
+    results = {
+        &quot;n_cases&quot;: len(cases),
+        &quot;sequential&quot;: {&quot;total_s&quot;: round(seq_s, 2), &quot;decisions_per_min&quot;: thru(seq_s),
+                       &quot;p95_ms&quot;: round(percentile(seq_lat, 0.95), 1)},
+        &quot;concurrent&quot;: {&quot;total_s&quot;: round(con_s, 2), &quot;decisions_per_min&quot;: thru(con_s),
+                       &quot;p95_ms&quot;: round(percentile(con_lat, 0.95), 1)},
+        &quot;speedup&quot;: round(seq_s / con_s, 2),
+        &quot;vram_rocm_smi&quot;: _capture_vram(),
+    }
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / &quot;benchmark.json&quot;).write_text(json.dumps(results, indent=2), encoding=&quot;utf-8&quot;)
+
+    try:
+        import matplotlib
+        matplotlib.use(&quot;Agg&quot;)
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(5, 4))
+        ax.bar([&quot;Sequential&quot;, &quot;Concurrent&quot;],
+               [results[&quot;sequential&quot;][&quot;decisions_per_min&quot;],
+                results[&quot;concurrent&quot;][&quot;decisions_per_min&quot;]],
+               color=[&quot;#888&quot;, &quot;#e8463a&quot;])
+        ax.set_ylabel(&quot;Decisions / min&quot;)
+        ax.set_title(f&quot;Quorum jury on one AMD GPU — {results[&#x27;speedup&#x27;]}x throughput&quot;)
+        fig.tight_layout()
+        fig.savefig(OUT / &quot;throughput.png&quot;, dpi=120)
+        print(f&quot;Chart -&gt; {OUT / &#x27;throughput.png&#x27;}&quot;)
+    except ImportError:
+        print(&quot;(matplotlib not installed — skipped PNG, JSON still written)&quot;)
+
+    print(json.dumps({k: v for k, v in results.items() if k != &quot;vram_rocm_smi&quot;}, indent=2))
+    print(f&quot;VRAM capture: {&#x27;yes&#x27; if results[&#x27;vram_rocm_smi&#x27;] else &#x27;no rocm-smi (not on GPU box)&#x27;}&quot;)
+    print(f&quot;Wrote {OUT / &#x27;benchmark.json&#x27;}&quot;)
+    return 0
+
+
+if __name__ == &quot;__main__&quot;:
+    raise SystemExit(asyncio.run(main()))
+</code></pre>
+</div>
+<div class="file">
+<h2>scripts/serve_vllm.sh</h2>
+<pre><code class="language-sh">#!/usr/bin/env bash
+# Launch a vLLM OpenAI-compatible server on AMD ROCm (Phase 1).
+# Option A: one server, one strong model; jurors differ by persona.
+set -euo pipefail
+
+MODEL=&quot;${PRIMARY_MODEL:-Qwen/Qwen2.5-7B-Instruct}&quot;
+PORT=&quot;${VLLM_PORT:-8001}&quot;
+GPU_UTIL=&quot;${GPU_MEMORY_UTILIZATION:-0.85}&quot;
+MAX_LEN=&quot;${MAX_MODEL_LEN:-8192}&quot;
+
+# Preflight: confirm a GPU is visible before pulling weights.
+if command -v rocm-smi &gt;/dev/null 2&gt;&amp;1; then
+  echo &quot;== rocm-smi ==&quot;
+  rocm-smi --showproductname --showmeminfo vram || true
+  echo &quot;==============&quot;
+else
+  echo &quot;WARN: rocm-smi not found — are you on the AMD GPU box?&quot;
+fi
+
+echo &quot;Serving $MODEL on :$PORT (ROCm, gpu-util=$GPU_UTIL, max-len=$MAX_LEN)&quot;
+python -m vllm.entrypoints.openai.api_server \
+  --model &quot;$MODEL&quot; \
+  --port &quot;$PORT&quot; \
+  --dtype auto \
+  --max-model-len &quot;$MAX_LEN&quot; \
+  --gpu-memory-utilization &quot;$GPU_UTIL&quot; \
+  --trust-remote-code
+
+# Then, in a second shell, point the backend at it:
+#   export USE_MOCK=False
+#   export VLLM_BASE_URL=http://localhost:8001/v1
+#   export PRIMARY_MODEL=$MODEL
+#   python scripts/smoke_test.py     # validate real JSON verdicts
+#   python eval/run_eval.py          # real numbers
+#
+# Option B (multi-model, if VRAM allows): run this script N times with a
+# different PRIMARY_MODEL and VLLM_PORT each, then map jurors to ports in
+# backend/jurors.py. See docs/gpu_runbook.md.
+</code></pre>
+</div>
+<div class="file">
+<h2>scripts/smoke_test.py</h2>
+<pre><code class="language-py">&quot;&quot;&quot;End-to-end sanity check on the mock backend (no GPU).
+
+Verifies: schemas validate, a full deliberation runs, the planted demo case
+is caught by the jury but approved by the baseline, and concurrent fan-out is
+faster than sequential.
+&quot;&quot;&quot;
+
+import asyncio
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from backend.inference import get_client  # noqa: E402
+from backend.orchestrator import deliberate, deliberate_sequential  # noqa: E402
+from backend.schemas import Case  # noqa: E402
+
+DEMO = Case(
+    case_id=&quot;DEMO-FRAUD&quot;,
+    profile={&quot;name&quot;: &quot;V. Castellano&quot;, &quot;country&quot;: &quot;Netherlands&quot;, &quot;account_age_months&quot;: 36},
+    narrative=(
+        &quot;Applicant V. Castellano presents a polished profile: a 36-month banking &quot;
+        &quot;history, professional references, and a declared income of $95,000. &quot;
+        &quot;Onboarding looks routine. The file notes that the account regularly &quot;
+        &quot;receives six-figure transfers from newly registered counterparties and &quot;
+        &quot;forwards them within a day, which the relationship manager describes as &quot;
+        &quot;&#x27;consistent with the client&#x27;s consulting business&#x27;.&quot;
+    ),
+)
+
+
+async def main() -&gt; int:
+    client = get_client()
+    decision = await deliberate(DEMO, client)
+
+    print(f&quot;Final decision : {decision.final_decision}&quot;)
+    print(f&quot;Panel conf     : {decision.panel_confidence}&quot;)
+    print(f&quot;Agreement      : {decision.agreement_ratio}&quot;)
+    print(f&quot;Baseline said  : {decision.baseline_verdict.decision} &quot;
+          f&quot;(conf {decision.baseline_verdict.confidence})&quot;)
+    for v in decision.all_verdicts:
+        print(f&quot;  - {v.juror_id:20s} {v.decision:8s} conf={v.confidence:.2f} flags={v.flags}&quot;)
+
+    assert decision.final_decision in (&quot;REJECT&quot;, &quot;ESCALATE&quot;), &quot;jury should not APPROVE the fraud case&quot;
+    assert all(v.juror_id for v in decision.all_verdicts)
+    if decision.baseline_verdict.decision == &quot;APPROVE&quot;:
+        print(&quot;\n&gt;&gt;&gt; Demo moment: the solo baseline APPROVED the fraud — the jury caught it.&quot;)
+    else:
+        print(&quot;\n&gt;&gt;&gt; Note: the baseline also flagged this case; pick a subtler demo narrative if you want the contrast.&quot;)
+
+    # Concurrency must beat sequential.
+    t0 = time.perf_counter()
+    await deliberate(DEMO, client)
+    concurrent_ms = (time.perf_counter() - t0) * 1000
+    t0 = time.perf_counter()
+    await deliberate_sequential(DEMO, client)
+    sequential_ms = (time.perf_counter() - t0) * 1000
+    print(f&quot;\nConcurrent: {concurrent_ms:.0f}ms  Sequential: {sequential_ms:.0f}ms  &quot;
+          f&quot;speedup: {sequential_ms / concurrent_ms:.1f}x&quot;)
+    assert concurrent_ms &lt; sequential_ms, &quot;concurrent fan-out should be faster&quot;
+
+    print(&quot;\nSMOKE TEST PASSED&quot;)
+    return 0
+
+
+if __name__ == &quot;__main__&quot;:
+    raise SystemExit(asyncio.run(main()))
+</code></pre>
+</div>
+<div class="file">
+<h2>frontend/app/page.js</h2>
+<pre><code class="language-js">&quot;use client&quot;;
+
+import { useEffect, useState } from &quot;react&quot;;
+
+const API = process.env.NEXT_PUBLIC_API_BASE || &quot;http://localhost:8000&quot;;
+
+const COLORS = {
+  APPROVE: { bg: &quot;bg-emerald-950&quot;, border: &quot;border-emerald-500&quot;, text: &quot;text-emerald-400&quot; },
+  REJECT: { bg: &quot;bg-red-950&quot;, border: &quot;border-red-500&quot;, text: &quot;text-red-400&quot; },
+  ABSTAIN: { bg: &quot;bg-zinc-800&quot;, border: &quot;border-zinc-500&quot;, text: &quot;text-zinc-400&quot; },
+  ESCALATE: { bg: &quot;bg-amber-950&quot;, border: &quot;border-amber-500&quot;, text: &quot;text-amber-400&quot; },
+};
+
+function Badge({ decision, big }) {
+  const c = COLORS[decision] || COLORS.ABSTAIN;
+  return (
+    &lt;span className={`${c.bg} ${c.border} ${c.text} border rounded-md font-bold ${big ? &quot;px-4 py-2 text-2xl&quot; : &quot;px-2 py-0.5 text-sm&quot;}`}&gt;
+      {decision}
+    &lt;/span&gt;
+  );
+}
+
+function ConfidenceBar({ value }) {
+  return (
+    &lt;div className=&quot;h-2 w-full rounded bg-zinc-700&quot;&gt;
+      &lt;div className=&quot;h-2 rounded bg-sky-400&quot; style={{ width: `${Math.round(value * 100)}%` }} /&gt;
+    &lt;/div&gt;
+  );
+}
+
+function JurorCard({ v }) {
+  const c = COLORS[v.decision] || COLORS.ABSTAIN;
+  return (
+    &lt;div className={`${c.bg} ${c.border} border rounded-lg p-4 flex flex-col gap-2`}&gt;
+      &lt;div className=&quot;flex items-center justify-between&quot;&gt;
+        &lt;span className=&quot;font-mono text-sm text-zinc-300&quot;&gt;{v.juror_id}&lt;/span&gt;
+        &lt;Badge decision={v.decision} /&gt;
+      &lt;/div&gt;
+      &lt;ConfidenceBar value={v.confidence} /&gt;
+      &lt;span className=&quot;text-xs text-zinc-400&quot;&gt;confidence {(v.confidence * 100).toFixed(0)}%&lt;/span&gt;
+      &lt;p className=&quot;text-sm text-zinc-200&quot;&gt;{v.rationale}&lt;/p&gt;
+      {v.flags?.length &gt; 0 &amp;&amp; (
+        &lt;div className=&quot;flex flex-wrap gap-1&quot;&gt;
+          {v.flags.map((f) =&gt; (
+            &lt;span key={f} className=&quot;bg-zinc-800 text-amber-300 text-xs rounded px-1.5 py-0.5&quot;&gt;⚑ {f}&lt;/span&gt;
+          ))}
+        &lt;/div&gt;
+      )}
+    &lt;/div&gt;
+  );
+}
+
+export default function Home() {
+  const [cases, setCases] = useState([]);
+  const [selected, setSelected] = useState(&quot;&quot;);
+  const [decision, setDecision] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(&quot;&quot;);
+
+  useEffect(() =&gt; {
+    fetch(`${API}/api/cases`)
+      .then((r) =&gt; r.json())
+      .then((d) =&gt; {
+        setCases(d);
+        if (d.length) setSelected(d[0].case_id);
+      })
+      .catch(() =&gt; setError(`Cannot reach backend at ${API}. Is uvicorn running?`));
+  }, []);
+
+  async function deliberate(caseId) {
+    const c = cases.find((x) =&gt; x.case_id === caseId);
+    if (!c) return;
+    setLoading(true);
+    setDecision(null);
+    setError(&quot;&quot;);
+    try {
+      const r = await fetch(`${API}/api/deliberate`, {
+        method: &quot;POST&quot;,
+        headers: { &quot;Content-Type&quot;: &quot;application/json&quot; },
+        body: JSON.stringify({ case_id: c.case_id, profile: c.profile, narrative: c.narrative }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setDecision(await r.json());
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const selectedCase = cases.find((x) =&gt; x.case_id === selected);
+  const baseline = decision?.baseline_verdict;
+
+  return (
+    &lt;main className=&quot;mx-auto max-w-6xl p-6 flex flex-col gap-6&quot;&gt;
+      &lt;header&gt;
+        &lt;h1 className=&quot;text-3xl font-bold&quot;&gt;Quorum&lt;/h1&gt;
+        &lt;p className=&quot;text-zinc-400&quot;&gt;
+          We don&#x27;t make AI smarter — we make its decisions trustworthy and auditable.
+        &lt;/p&gt;
+      &lt;/header&gt;
+
+      {/* Zone 1: case input */}
+      &lt;section className=&quot;rounded-lg border border-zinc-700 p-4 flex flex-col gap-3&quot;&gt;
+        &lt;h2 className=&quot;text-sm uppercase tracking-wide text-zinc-400&quot;&gt;1 · Case&lt;/h2&gt;
+        &lt;div className=&quot;flex flex-wrap items-center gap-3&quot;&gt;
+          &lt;select
+            className=&quot;bg-zinc-900 border border-zinc-600 rounded px-3 py-2&quot;
+            value={selected}
+            onChange={(e) =&gt; setSelected(e.target.value)}
+          &gt;
+            {cases.map((c) =&gt; (
+              &lt;option key={c.case_id} value={c.case_id}&gt;{c.case_id}&lt;/option&gt;
+            ))}
+          &lt;/select&gt;
+          &lt;button
+            onClick={() =&gt; deliberate(selected)}
+            disabled={loading || !selected}
+            className=&quot;bg-sky-600 hover:bg-sky-500 disabled:opacity-40 rounded px-4 py-2 font-semibold&quot;
+          &gt;
+            {loading ? &quot;Deliberating…&quot; : &quot;Deliberate&quot;}
+          &lt;/button&gt;
+          &lt;button
+            onClick={() =&gt; { setSelected(&quot;DEMO-FRAUD&quot;); deliberate(&quot;DEMO-FRAUD&quot;); }}
+            disabled={loading}
+            className=&quot;bg-red-700 hover:bg-red-600 disabled:opacity-40 rounded px-4 py-2 font-semibold&quot;
+          &gt;
+            ▶ Demo case (planted fraud)
+          &lt;/button&gt;
+        &lt;/div&gt;
+        {selectedCase &amp;&amp; (
+          &lt;p className=&quot;text-sm text-zinc-300 border-l-2 border-zinc-600 pl-3&quot;&gt;{selectedCase.narrative}&lt;/p&gt;
+        )}
+        {error &amp;&amp; &lt;p className=&quot;text-red-400 text-sm&quot;&gt;{error}&lt;/p&gt;}
+      &lt;/section&gt;
+
+      {/* Zone 2: live jury view */}
+      {decision &amp;&amp; (
+        &lt;section className=&quot;flex flex-col gap-3&quot;&gt;
+          &lt;h2 className=&quot;text-sm uppercase tracking-wide text-zinc-400&quot;&gt;2 · The Jury&lt;/h2&gt;
+          &lt;div className=&quot;grid gap-4 sm:grid-cols-2 lg:grid-cols-3&quot;&gt;
+            {decision.all_verdicts.map((v) =&gt; &lt;JurorCard key={v.juror_id} v={v} /&gt;)}
+          &lt;/div&gt;
+        &lt;/section&gt;
+      )}
+
+      {/* Zone 3: verdict panel */}
+      {decision &amp;&amp; (
+        &lt;section className=&quot;rounded-lg border border-zinc-700 p-5 flex flex-col gap-4&quot;&gt;
+          &lt;h2 className=&quot;text-sm uppercase tracking-wide text-zinc-400&quot;&gt;3 · Adjudicated Verdict&lt;/h2&gt;
+          &lt;div className=&quot;flex flex-wrap items-center gap-6&quot;&gt;
+            &lt;Badge decision={decision.final_decision} big /&gt;
+            &lt;div&gt;
+              &lt;div className=&quot;text-xs text-zinc-400&quot;&gt;panel confidence&lt;/div&gt;
+              &lt;div className=&quot;text-xl font-bold&quot;&gt;{(decision.panel_confidence * 100).toFixed(0)}%&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div&gt;
+              &lt;div className=&quot;text-xs text-zinc-400&quot;&gt;agreement&lt;/div&gt;
+              &lt;div className=&quot;text-xl font-bold&quot;&gt;{(decision.agreement_ratio * 100).toFixed(0)}%&lt;/div&gt;
+            &lt;/div&gt;
+            {baseline &amp;&amp; (
+              &lt;div className={`ml-auto rounded-md border px-4 py-2 ${COLORS[baseline.decision].border}`}&gt;
+                &lt;div className=&quot;text-xs text-zinc-400&quot;&gt;Single model said&lt;/div&gt;
+                &lt;div className={`text-lg font-bold ${COLORS[baseline.decision].text}`}&gt;
+                  {baseline.decision} ({(baseline.confidence * 100).toFixed(0)}%)
+                &lt;/div&gt;
+              &lt;/div&gt;
+            )}
+          &lt;/div&gt;
+
+          {baseline &amp;&amp; baseline.decision !== decision.final_decision &amp;&amp; (
+            &lt;div className=&quot;rounded bg-amber-950 border border-amber-600 text-amber-200 text-sm p-3&quot;&gt;
+              ⚠ The single model said &lt;b&gt;{baseline.decision}&lt;/b&gt;, but the jury returned{&quot; &quot;}
+              &lt;b&gt;{decision.final_decision}&lt;/b&gt;. A solo LLM would have waved this through.
+            &lt;/div&gt;
+          )}
+
+          &lt;p className=&quot;text-sm text-zinc-300&quot;&gt;{decision.rationale_summary}&lt;/p&gt;
+
+          {decision.dissent_report.length &gt; 0 &amp;&amp; (
+            &lt;div&gt;
+              &lt;h3 className=&quot;text-sm font-semibold text-zinc-400 mb-2&quot;&gt;Dissent report (audit trail)&lt;/h3&gt;
+              &lt;div className=&quot;grid gap-3 sm:grid-cols-2&quot;&gt;
+                {decision.dissent_report.map((v) =&gt; &lt;JurorCard key={v.juror_id} v={v} /&gt;)}
+              &lt;/div&gt;
+            &lt;/div&gt;
+          )}
+        &lt;/section&gt;
+      )}
+    &lt;/main&gt;
+  );
+}
+</code></pre>
+</div>
+<div class="file">
+<h2>frontend/app/layout.js</h2>
+<pre><code class="language-js">import &quot;./globals.css&quot;;
+
+export const metadata = {
+  title: &quot;Quorum — Verifiable Decision Engine&quot;,
+  description: &quot;A jury of LLMs on one AMD Instinct GPU.&quot;,
+};
+
+export default function RootLayout({ children }) {
+  return (
+    &lt;html lang=&quot;en&quot;&gt;
+      &lt;body suppressHydrationWarning&gt;{children}&lt;/body&gt;
+    &lt;/html&gt;
+  );
+}
+</code></pre>
+</div>
+<div class="file">
+<h2>frontend/app/globals.css</h2>
+<pre><code class="language-css">@import &quot;tailwindcss&quot;;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background: #0b0e14;
+  color: #e6e8eb;
+}
+</code></pre>
+</div>
+<div class="file">
+<h2>frontend/next.config.mjs</h2>
+<pre><code class="language-mjs">/** @type {import(&#x27;next&#x27;).NextConfig} */
+const nextConfig = {};
+export default nextConfig;
+</code></pre>
+</div>
+<div class="file">
+<h2>frontend/postcss.config.mjs</h2>
+<pre><code class="language-mjs">const config = {
+  plugins: {
+    &quot;@tailwindcss/postcss&quot;: {},
+  },
+};
+
+export default config;
+</code></pre>
+</div>
+<div class="file">
+<h2>frontend/package.json</h2>
+<pre><code class="language-json">{
+  &quot;name&quot;: &quot;quorum-dashboard&quot;,
+  &quot;version&quot;: &quot;0.1.0&quot;,
+  &quot;private&quot;: true,
+  &quot;scripts&quot;: {
+    &quot;dev&quot;: &quot;next dev&quot;,
+    &quot;build&quot;: &quot;next build&quot;,
+    &quot;start&quot;: &quot;next start&quot;
+  },
+  &quot;dependencies&quot;: {
+    &quot;next&quot;: &quot;15.1.3&quot;,
+    &quot;react&quot;: &quot;19.0.0&quot;,
+    &quot;react-dom&quot;: &quot;19.0.0&quot;
+  },
+  &quot;devDependencies&quot;: {
+    &quot;@tailwindcss/postcss&quot;: &quot;^4.0.0&quot;,
+    &quot;tailwindcss&quot;: &quot;^4.0.0&quot;
+  }
+}
+</code></pre>
+</div>
+</body></html>
